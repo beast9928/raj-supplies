@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: rajsuppliers-idportal
+    env: node
+    region: singapore
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: DATABASE_URL
+        fromDatabase:
+          name: rajsuppliers-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://rajsuppliers-idportal.onrender.com
+
+databases:
+  - name: rajsuppliers-db
+    databaseName: rajsuppliers
+    user: rajsuppliers_user
+    region: singapore
+    plan: free
