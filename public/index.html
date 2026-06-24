@@ -598,8 +598,26 @@ textarea.fi{resize:vertical;min-height:60px}
             </div>
           </div>
           <div class="fr">
-            <div class="fg"><label class="fl">Page Size</label><select class="fi" id="po-page-size" onchange="updatePrintPreview()"><option value="A4">A4 (210 × 297mm)</option><option value="A3">A3 (297 × 420mm)</option><option value="custom">Custom</option></select></div>
+            <div class="fg"><label class="fl">Page Size</label>
+              <select class="fi" id="po-page-size" onchange="updatePageSizeFields()">
+                <option value="A4">A4 — 210 × 297 mm</option>
+                <option value="A3">A3 — 297 × 420 mm</option>
+                <option value="12x18in">12 × 18 inches (305 × 457 mm)</option>
+                <option value="13x19in">13 × 19 inches (330 × 483 mm)</option>
+                <option value="custom-page">Custom page size</option>
+              </select>
+            </div>
             <div class="fg"><label class="fl">Cards per Row</label><input class="fi" type="number" id="po-cols" value="3" min="1" max="10" oninput="updatePrintPreview()"></div>
+          </div>
+          <div id="custom-page-size-row" style="display:none">
+            <div class="fr">
+              <div class="fg"><label class="fl">Page Width</label><input class="fi" type="number" id="po-page-w" value="210" min="50" oninput="updatePrintPreview()"></div>
+              <div class="fg"><label class="fl">Page Height</label><input class="fi" type="number" id="po-page-h" value="297" min="50" oninput="updatePrintPreview()"></div>
+              <div class="fg"><label class="fl">Unit</label><select class="fi" id="po-page-unit" onchange="convertPageUnit()"><option value="mm">mm</option><option value="in">inches</option></select></div>
+            </div>
+          </div>
+          <div style="background:rgba(79,142,247,.08);border:1px solid rgba(79,142,247,.2);border-radius:6px;padding:8px 10px;font-size:11px;color:var(--text2);margin-bottom:4px" id="po-printable-area-info">
+            📐 Printable area (95%): calculating...
           </div>
           <div class="fr">
             <div class="fg"><label class="fl">Cards per Column</label><input class="fi" type="number" id="po-rows" value="4" min="1" max="15" oninput="updatePrintPreview()"></div>
@@ -1050,25 +1068,89 @@ async function activateCard(id){try{await PUT('/cards/'+id+'/activate',{});await
 function revokeSelectedCard(){if(!SELECTED_CARD){toast('Select a card first','error');return;}revokeCard(SELECTED_CARD.id);}
 
 // PRINT OUTPUT
+const PAGE_SIZES={
+  'A4':{w:210,h:297,label:'A4 (210 × 297 mm)'},
+  'A3':{w:297,h:420,label:'A3 (297 × 420 mm)'},
+  '12x18in':{w:305,h:457,label:'12 × 18 in (305 × 457 mm)'},
+  '13x19in':{w:330,h:483,label:'13 × 19 in (330 × 483 mm)'},
+  'custom-page':{w:210,h:297,label:'Custom'}
+};
+
+function getPageDimsMm(){
+  const ps=document.getElementById('po-page-size')?.value||'A4';
+  if(ps==='custom-page'){
+    let w=parseFloat(document.getElementById('po-page-w')?.value)||210;
+    let h=parseFloat(document.getElementById('po-page-h')?.value)||297;
+    const unit=document.getElementById('po-page-unit')?.value||'mm';
+    if(unit==='in'){w=Math.round(w*25.4);h=Math.round(h*25.4);}
+    return{w,h};
+  }
+  return{w:PAGE_SIZES[ps].w,h:PAGE_SIZES[ps].h};
+}
+
+function updatePageSizeFields(){
+  const ps=document.getElementById('po-page-size')?.value||'A4';
+  const isCustom=ps==='custom-page';
+  const row=document.getElementById('custom-page-size-row');
+  if(row)row.style.display=isCustom?'block':'none';
+  updatePrintPreview();
+}
+
+function convertPageUnit(){
+  const unit=document.getElementById('po-page-unit')?.value;
+  const wEl=document.getElementById('po-page-w');
+  const hEl=document.getElementById('po-page-h');
+  if(!wEl||!hEl)return;
+  if(unit==='in'){
+    wEl.value=Math.round(parseFloat(wEl.value)/25.4*10)/10;
+    hEl.value=Math.round(parseFloat(hEl.value)/25.4*10)/10;
+  } else {
+    wEl.value=Math.round(parseFloat(wEl.value)*25.4);
+    hEl.value=Math.round(parseFloat(hEl.value)*25.4);
+  }
+  updatePrintPreview();
+}
+
 function updatePrintPreview(){
   const cols=parseInt(document.getElementById('po-cols')?.value)||3;
   const rows=parseInt(document.getElementById('po-rows')?.value)||4;
   const total=cols*rows;
-  const gapCol=document.getElementById('po-gap-col')?.value||5;
-  const gapRow=document.getElementById('po-gap-row')?.value||5;
+  const gapCol=parseFloat(document.getElementById('po-gap-col')?.value)||5;
+  const gapRow=parseFloat(document.getElementById('po-gap-row')?.value)||5;
+  const marginH=parseFloat(document.getElementById('po-margin-h')?.value)||10;
+  const marginV=parseFloat(document.getElementById('po-margin-v')?.value)||10;
   const size=document.getElementById('po-card-size')?.value||'54x86';
-  const isCustom=size==='custom';
-  const cr=document.getElementById('custom-size-row');if(cr)cr.style.display=isCustom?'block':'none';
+  const isCustomCard=size==='custom';
+  const cr=document.getElementById('custom-size-row');if(cr)cr.style.display=isCustomCard?'block':'none';
+
+  // Page dims and 95% printable area
+  const orient=document.querySelector('input[name="po-orient"]:checked')?.value||'portrait';
+  let {w:pw,h:ph}=getPageDimsMm();
+  if(orient==='landscape'){const tmp=pw;pw=ph;ph=tmp;}
+  const printW=Math.round(pw*0.95);
+  const printH=Math.round(ph*0.95);
+  const availW=printW-(marginH*2);
+  const availH=printH-(marginV*2);
+  const cardW=Math.round((availW-(gapCol*(cols-1)))/cols);
+  const cardH=Math.round((availH-(gapRow*(rows-1)))/rows);
+
+  const infoEl=document.getElementById('po-printable-area-info');
+  if(infoEl)infoEl.innerHTML=`📐 Page: ${pw}×${ph}mm &nbsp;|&nbsp; <strong>Printable area (95%): ${printW}×${printH}mm</strong> &nbsp;|&nbsp; Estimated card slot: ${cardW>0?cardW:'⚠'}×${cardH>0?cardH:'⚠'}mm`;
+
   const totalEl=document.getElementById('po-total');if(totalEl)totalEl.textContent=total;
-  const sumEl=document.getElementById('po-summary');if(sumEl)sumEl.textContent=cols+'×'+rows+'='+total+' cards/page · Gap: '+gapCol+'mm(H) '+gapRow+'mm(V)';
+  const sumEl=document.getElementById('po-summary');if(sumEl)sumEl.textContent=cols+'×'+rows+' = '+total+' cards/page · Gap: '+gapCol+'mm(H) '+gapRow+'mm(V)';
   const grid=document.getElementById('print-grid-el');if(!grid)return;
-  const ratio=getSizeRatio(size);
+  const ratio=getSizeRatio(size,cardW,cardH);
   grid.style.gridTemplateColumns='repeat('+cols+',1fr)';
   grid.style.gap=(gapRow/10)+'em '+(gapCol/10)+'em';
-  grid.innerHTML=Array.from({length:total},(_,i)=>`<div style="background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--accent);aspect-ratio:${ratio}">${i+1}</div>`).join('');
+  const warn=cardW<=0||cardH<=0;
+  grid.innerHTML=warn?`<div style="color:var(--danger);font-size:11px;padding:8px;grid-column:1/-1">⚠️ Cards don't fit on page. Reduce quantity or gaps.</div>`:Array.from({length:total},(_,i)=>`<div style="background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--accent);aspect-ratio:${ratio}">${i+1}</div>`).join('');
 }
 
-function getSizeRatio(size){return{'54x86':'54/86','48x72':'48/72','27x40':'27/40','35x35':'1/1','custom':'54/86'}[size]||'54/86';}
+function getSizeRatio(size,cw,ch){
+  if(cw>0&&ch>0)return cw+'/'+ch;
+  return{'54x86':'54/86','48x72':'48/72','27x40':'27/40','35x35':'1/1','custom':'54/86'}[size]||'54/86';
+}
 
 async function loadPrintStudents(){
   const schoolId=v('po-school');if(!schoolId)return;
@@ -1086,9 +1168,15 @@ function doPrintOutput(){
   const rows=parseInt(document.getElementById('po-rows').value)||4;
   const perPage=cols*rows;
   const pages=Math.ceil(Math.max(sel,1)/perPage);
+  const psVal=document.getElementById('po-page-size')?.value||'A4';
+  const psLabel=PAGE_SIZES[psVal]?.label||psVal;
+  let {w:pw,h:ph}=getPageDimsMm();
+  const orient=document.querySelector('input[name="po-orient"]:checked')?.value||'portrait';
+  if(orient==='landscape'){const tmp=pw;pw=ph;ph=tmp;}
+  const printW=Math.round(pw*0.95);const printH=Math.round(ph*0.95);
   closeModal('print-output-modal');
-  toast('Print sheet: '+(sel||'all')+' cards · '+pages+' page(s) · '+perPage+' cards/page','success');
-  setTimeout(()=>toast('Full PDF print merge with CorelDRAW-style layout coming in v2.0','info'),1500);
+  toast(`Print: ${sel||'all'} cards · ${pages} page(s) · Page: ${pw}×${ph}mm · Printable: ${printW}×${printH}mm (95%)`,'success');
+  setTimeout(()=>toast('PDF print merge with CorelDRAW-style layout coming in v2.0','info'),1500);
 }
 
 // ORDERS
